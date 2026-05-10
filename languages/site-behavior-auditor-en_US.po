@@ -914,3 +914,6 @@ msgstr "Are you sure you want to unban this IP?"
 
 msgid "保存设置"
 msgstr "Save Settings"
+
+msgid "📥 导出 CSV"
+msgstr "📥 Export CSV"
