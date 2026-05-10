@@ -821,9 +821,13 @@ function sba_security_engine() {
     // 非登录用户的数据探测
     if (!$is_logged_in && !$is_bot) {
         $qs_enum = $_SERVER['QUERY_STRING'] ?? '';
-        if (isset($_GET['author']) || strpos($uri, 'author=') !== false ||
-            preg_match('#/wp/v2/(users|posts|pages|comments|media|types|taxonomies|statuses|settings|themes|plugins|blocks|block-types|block-renderer|search|categories|tags|font-families|font-faces)#i', $uri . $rest_route)) {
-            sba_execute_block(__('数据探测: 敏感信息/内容抓取', SBA_TEXT_DOMAIN));
+        $is_human_author_click = (isset($_GET['author']) || strpos($uri, 'author=') !== false) && sba_has_valid_cookie();
+
+        if (!$is_human_author_click) {
+            if (isset($_GET['author']) || strpos($uri, 'author=') !== false ||
+                preg_match('#/wp/v2/(users|posts|pages|comments|media|types|taxonomies|statuses|settings|themes|plugins|blocks|block-types|block-renderer|search|categories|tags|font-families|font-faces)#i', $uri . $rest_route)) {
+                sba_execute_block(__('数据探测: 敏感信息/内容抓取', SBA_TEXT_DOMAIN));
+            }
         }
         if (preg_match('/filter\[author\]\s*=/i', $qs_enum)) sba_execute_block(__('探测: filter注入', SBA_TEXT_DOMAIN));
         if (preg_match('/filter\[orderby\]\s*=/i', $qs_enum)) sba_execute_block(__('探测: orderby注入', SBA_TEXT_DOMAIN));
@@ -843,7 +847,12 @@ function sba_security_engine() {
     if ($limit > 0 && !$is_logged_in && !$is_bot && !in_array($ip, ['127.0.0.1', '::1'])) {
         $is_browser = preg_match('/Mozilla\/|Chrome\/|Firefox\/|Safari\/|Edge\/|Opera\/|MSIE/', $ua);
         $scraper_paths = sba_get_option('scraper_paths', 'feed=|rest_route=');
-        $cur_limit = preg_match('/' . str_replace('/', '\/', $scraper_paths) . '/i', $uri) ? max(5, floor($limit / 3)) : $limit;
+        $cur_limit = $limit;
+        if (strpos($uri . $rest_route, 'oembed') !== false || strpos($uri . $rest_route, 'feed') !== false) {
+            $cur_limit = $limit * 5;
+        } elseif (preg_match('/' . str_replace('/', '\/', $scraper_paths) . '/i', $uri)) {
+            $cur_limit = max(5, floor($limit / 3));
+        }
         if (sba_get_option('enable_cookie_check', 1) && !sba_has_valid_cookie() && !$is_browser) $cur_limit = max(5, floor($cur_limit / 2));
         if (sba_check_rate_limit($ip, $cur_limit)) sba_execute_block(__('访问速率异常', SBA_TEXT_DOMAIN));
         if (sba_get_option('enable_cookie_check', 1) && !sba_has_valid_cookie() && $_SERVER['REQUEST_METHOD'] === 'GET') sba_set_human_cookie();
