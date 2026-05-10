@@ -648,20 +648,6 @@ function sba_stats_engine() {
     $uri = sba_normalize_uri($raw_uri);
     $rest_route = sba_normalize_uri($_GET['rest_route'] ?? '');
 
-    // 应急密钥
-    $provided_key = $_GET['sba_key'] ?? '';
-    $emergency_key = $opts['emergency_entrance_key'] ?? '';
-    if (!empty($provided_key) && !empty($emergency_key) && $provided_key === $emergency_key) {
-        $whitelist = (string)($opts['ip_whitelist'] ?? '');
-        if (stripos($whitelist, $ip) === false) {
-            $opts['ip_whitelist'] = trim($whitelist) . "\n" . $ip;
-            update_option('sba_settings', $opts);
-            wp_cache_delete('sba_settings', 'options');
-        }
-        wp_redirect(home_url('/?sba_msg=whitelisted'));
-        exit;
-    }
-
     // XML-RPC 防护
     if (strpos($uri, 'xmlrpc.php') !== false) {
         $fail_key = 'sba_xmlrpc_fail_' . md5($ip);
@@ -780,8 +766,21 @@ function sba_stats_engine() {
 add_action('init', 'sba_security_engine', 5);
 function sba_security_engine() {
     $ip = sba_get_ip();
-    if (sba_is_ip_whitelisted($ip)) return;
+    $opts = get_option('sba_settings', []);
+    $provided_key = $_GET['sba_key'] ?? '';
+    $emergency_key = $opts['emergency_entrance_key'] ?? '';
+    if (!empty($provided_key) && !empty($emergency_key) && $provided_key === $emergency_key) {
+        $whitelist = (string)($opts['ip_whitelist'] ?? '');
+        if (stripos($whitelist, $ip) === false) {
+            $opts['ip_whitelist'] = trim($whitelist) . "\n" . $ip;
+            update_option('sba_settings', $opts);
+            wp_cache_delete('sba_settings', 'options');
+        }
+        wp_redirect(home_url('/?sba_msg=whitelisted'));
+        exit;
+    }
 
+    if (sba_is_ip_whitelisted($ip)) return;
     $raw_uri = $_SERVER['REQUEST_URI'] ?? '';
     $uri = sba_normalize_uri($raw_uri);
     $rest_route = sba_normalize_uri($_GET['rest_route'] ?? '');
