@@ -914,3 +914,9 @@ msgstr ""
 
 msgid "📥 导出 CSV"
 msgstr ""
+
+msgid "拦截原因"
+msgstr ""
+
+msgid "目标路径"
+msgstr ""

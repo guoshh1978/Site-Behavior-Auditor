@@ -917,3 +917,9 @@ msgstr "Save Settings"
 
 msgid "📥 导出 CSV"
 msgstr "📥 Export CSV"
+
+msgid "拦截原因"
+msgstr "Reason"
+
+msgid "目标路径"
+msgstr "Target URL"
