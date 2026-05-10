@@ -1210,13 +1210,13 @@ function sba_handle_export_blocked_logs() {
 
     global $wpdb;
     $table_name = $wpdb->prefix . 'sba_blocked_log';
-    $results = $wpdb->get_results("SELECT block_time, ip, reason, target_url FROM $table_name ORDER BY block_time DESC", ARRAY_A);
+    $results = $wpdb->get_results("SELECT block_time, ip, reason, target_url FROM $table_name WHERE DATE(block_time) = CURDATE() ORDER BY block_time DESC", ARRAY_A);
 
     if (empty($results)) {
-        wp_die(__('暂无数据可供导出', SBA_TEXT_DOMAIN));
+        wp_die(__('今日暂无拦截数据可供导出', SBA_TEXT_DOMAIN));
     }
 
-    $filename = 'sba_blocked_logs_' . date('Y-m-d_His') . '.csv';
+    $filename = 'sba_blocked_today_' . date('Y-m-d') . '.csv';
     header('Content-Type: text/csv; charset=utf-8');
     header('Content-Disposition: attachment; filename=' . $filename);
     $output = fopen('php://output', 'w');
@@ -1233,7 +1233,7 @@ function sba_handle_export_blocked_logs() {
         fputcsv($output, [
             $row['block_time'],
             $row['ip'],
-            __($row['reason'], SBA_TEXT_DOMAIN), // 翻译拦截原因
+            __($row['reason'], SBA_TEXT_DOMAIN),
             $row['target_url']
         ]);
     }
@@ -1776,7 +1776,7 @@ function sba_audit_dashboard() {
         </div>
         <div class="sba-card"><h3><?php printf(__('👣 访客轨迹 (%s)', SBA_TEXT_DOMAIN), $latest); ?></h3><div class="sba-scroll-x"><table class="sba-table sba-track-table"><thead><tr><th class="col-time"><?php _e('时间', SBA_TEXT_DOMAIN); ?></th><th class="col-ip"><?php _e('IP', SBA_TEXT_DOMAIN); ?></th><th class="col-geo"><?php _e('归属地', SBA_TEXT_DOMAIN); ?></th><th class="col-url"><?php _e('访问路径', SBA_TEXT_DOMAIN); ?></th><th class="col-pv"><?php _e('PV', SBA_TEXT_DOMAIN); ?></th></tr></thead><tbody id="track-body"></tbody></table></div>
         <div style="margin-top:15px;display:flex;justify-content:space-between;"><div><?php _e('总记录:', SBA_TEXT_DOMAIN); ?> <b id="total-rows">0</b></div><div><button id="prev-page" class="button"><?php _e('◀ 上页', SBA_TEXT_DOMAIN); ?></button> <?php _e('第', SBA_TEXT_DOMAIN); ?> <b id="current-page">1</b> / <b id="total-pages">1</b> <?php _e('页', SBA_TEXT_DOMAIN); ?> <button id="next-page" class="button"><?php _e('下页 ▶', SBA_TEXT_DOMAIN); ?></button></div></div></div>
-        <div class="sba-card" style="border-top:3px solid #d63638;"><a href="<?php echo wp_nonce_url(admin_url('admin-post.php?action=sba_export_blocked_logs'), 'sba_export_action', 'sba_nonce'); ?>" class="button button-small" style="float:right;margin-top:2px;"><?php _e('📥 导出 CSV', SBA_TEXT_DOMAIN); ?></a><h3><?php printf(__('🚫 拦截日志 (%s)', SBA_TEXT_DOMAIN), $latest); ?></h3><div class="sba-scroll-x"><table class="sba-table sba-blocked-table"><thead><tr><th><?php _e('时间', SBA_TEXT_DOMAIN); ?></th><th><?php _e('拦截 IP', SBA_TEXT_DOMAIN); ?></th><th><?php _e('原因与目标', SBA_TEXT_DOMAIN); ?></th></tr></thead><tbody id="blocked-log-body"></tbody></table></div>
+        <div class="sba-card" style="border-top:3px solid #d63638;"><a href="<?php echo wp_nonce_url(admin_url('admin-post.php?action=sba_export_blocked_logs'), 'sba_export_action', 'sba_nonce'); ?>" class="button button-small" style="float:right;margin-top:2px;"><?php _e('📥 导出今日 CSV', SBA_TEXT_DOMAIN); ?></a><h3><?php printf(__('🚫 拦截日志 (%s)', SBA_TEXT_DOMAIN), $latest); ?></h3><div class="sba-scroll-x"><table class="sba-table sba-blocked-table"><thead><tr><th><?php _e('时间', SBA_TEXT_DOMAIN); ?></th><th><?php _e('拦截 IP', SBA_TEXT_DOMAIN); ?></th><th><?php _e('原因与目标', SBA_TEXT_DOMAIN); ?></th></tr></thead><tbody id="blocked-log-body"></tbody></table></div>
         <div style="margin-top:15px;display:flex;justify-content:space-between;"><div><?php _e('总记录:', SBA_TEXT_DOMAIN); ?> <b id="blocked-total-rows">0</b></div><div><button id="blocked-prev-page" class="button"><?php _e('◀ 上页', SBA_TEXT_DOMAIN); ?></button> <?php _e('第', SBA_TEXT_DOMAIN); ?> <b id="blocked-current-page">1</b> / <b id="blocked-total-pages">1</b> <?php _e('页', SBA_TEXT_DOMAIN); ?> <button id="blocked-next-page" class="button"><?php _e('下页 ▶', SBA_TEXT_DOMAIN); ?></button></div></div></div>
     </div>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>

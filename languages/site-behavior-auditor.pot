@@ -912,11 +912,14 @@ msgstr ""
 msgid "保存设置"
 msgstr ""
 
-msgid "📥 导出 CSV"
+msgid "📥 导出今日 CSV"
 msgstr ""
 
 msgid "拦截原因"
 msgstr ""
 
 msgid "目标路径"
+msgstr ""
+
+msgid "今日暂无拦截数据可供导出"
 msgstr ""
