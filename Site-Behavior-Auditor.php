@@ -1785,7 +1785,7 @@ function sba_audit_dashboard() {
         </div>
         <div class="sba-card"><h3><?php printf(__('👣 访客轨迹 (%s)', SBA_TEXT_DOMAIN), $latest); ?></h3><div class="sba-scroll-x"><table class="sba-table sba-track-table"><thead><tr><th class="col-time"><?php _e('时间', SBA_TEXT_DOMAIN); ?></th><th class="col-ip"><?php _e('IP', SBA_TEXT_DOMAIN); ?></th><th class="col-geo"><?php _e('归属地', SBA_TEXT_DOMAIN); ?></th><th class="col-url"><?php _e('访问路径', SBA_TEXT_DOMAIN); ?></th><th class="col-pv"><?php _e('PV', SBA_TEXT_DOMAIN); ?></th></tr></thead><tbody id="track-body"></tbody></table></div>
         <div style="margin-top:15px;display:flex;justify-content:space-between;"><div><?php _e('总记录:', SBA_TEXT_DOMAIN); ?> <b id="total-rows">0</b></div><div><button id="prev-page" class="button"><?php _e('◀ 上页', SBA_TEXT_DOMAIN); ?></button> <?php _e('第', SBA_TEXT_DOMAIN); ?> <b id="current-page">1</b> / <b id="total-pages">1</b> <?php _e('页', SBA_TEXT_DOMAIN); ?> <button id="next-page" class="button"><?php _e('下页 ▶', SBA_TEXT_DOMAIN); ?></button></div></div></div>
-        <div class="sba-card" style="border-top:3px solid #d63638;"><div style="float:right;margin-top:2px;display:flex;align-items:center;gap:5px;"><input type="date" id="sba-export-date" value="<?php echo current_time('Y-m-d'); ?>" style="height:28px;border-radius:4px;border:1px solid #ccc;padding:0 5px;font-size:12px;line-height:1;margin:0;"><a href="#" id="sba-export-btn" class="button button-small"><?php _e('📥 导出 CSV', SBA_TEXT_DOMAIN); ?></a></div><h3><?php printf(__('🚫 拦截日志 (%s)', SBA_TEXT_DOMAIN), $latest); ?></h3><div class="sba-scroll-x"><table class="sba-table sba-blocked-table"><thead><tr><th><?php _e('时间', SBA_TEXT_DOMAIN); ?></th><th><?php _e('拦截 IP', SBA_TEXT_DOMAIN); ?></th><th><?php _e('原因与目标', SBA_TEXT_DOMAIN); ?></th></tr></thead><tbody id="blocked-log-body"></tbody></table></div>
+        <div class="sba-card" style="border-top:3px solid #d63638;"><div style="float:right;margin-top:2px;display:flex;align-items:center;gap:5px;"><input type="date" id="sba-export-date" value="<?php echo current_time('Y-m-d'); ?>" style="height:28px;border-radius:4px;border:1px solid #ccc;padding:0 5px;font-size:12px;line-height:1;margin:0;"><a href="javascript:void(0);" id="sba-export-btn" class="button button-small"><?php _e('📥 导出 CSV', SBA_TEXT_DOMAIN); ?></a></div><h3><?php printf(__('🚫 拦截日志 (%s)', SBA_TEXT_DOMAIN), $latest); ?></h3><div class="sba-scroll-x"><table class="sba-table sba-blocked-table"><thead><tr><th><?php _e('时间', SBA_TEXT_DOMAIN); ?></th><th><?php _e('拦截 IP', SBA_TEXT_DOMAIN); ?></th><th><?php _e('原因与目标', SBA_TEXT_DOMAIN); ?></th></tr></thead><tbody id="blocked-log-body"></tbody></table></div>
         <div style="margin-top:15px;display:flex;justify-content:space-between;"><div><?php _e('总记录:', SBA_TEXT_DOMAIN); ?> <b id="blocked-total-rows">0</b></div><div><button id="blocked-prev-page" class="button"><?php _e('◀ 上页', SBA_TEXT_DOMAIN); ?></button> <?php _e('第', SBA_TEXT_DOMAIN); ?> <b id="blocked-current-page">1</b> / <b id="blocked-total-pages">1</b> <?php _e('页', SBA_TEXT_DOMAIN); ?> <button id="blocked-next-page" class="button"><?php _e('下页 ▶', SBA_TEXT_DOMAIN); ?></button></div></div></div>
     </div>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -1808,16 +1808,16 @@ function sba_audit_dashboard() {
     document.getElementById('blocked-next-page').onclick=()=>{if(blockedCurPage<blockedMaxPages)loadBlockedLogs(blockedCurPage+1);};
     loadBlockedLogs(1);
 
-    const exportBtn = document.getElementById('sba-dynamic-export-btn');
-    const dateInput = document.getElementById('sba-export-target-date');
-    const baseExportUrl = "<?php echo admin_url('admin-post.php?action=sba_export_blocked_logs&sba_nonce=' . wp_create_nonce('sba_export_action')); ?>";
-
-    function updateExportLink() {
-        const selectedDate = dateInput.value;
-        exportBtn.href = baseExportUrl + "&target_date=" + selectedDate;
-    }
-    updateExportLink();
-    dateInput.addEventListener('change', updateExportLink);
+    document.getElementById('sba-export-btn').onclick = function(e) {
+        e.preventDefault();
+        var date = document.getElementById('sba-export-date').value;
+        var baseUrl = "<?php echo admin_url('admin-post.php?action=sba_export_blocked_logs&sba_nonce=' . wp_create_nonce('sba_export_action')); ?>";
+        if (date) {
+            window.location.href = baseUrl + "&target_date=" + date;
+        } else {
+            alert('请先选择日期');
+        }
+    };
     </script>
     <?php
 }
