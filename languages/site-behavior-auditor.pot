@@ -912,7 +912,7 @@ msgstr ""
 msgid "保存设置"
 msgstr ""
 
-msgid "📥 导出今日 CSV"
+msgid "📥 导出 CSV"
 msgstr ""
 
 msgid "拦截原因"
