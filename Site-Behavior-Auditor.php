@@ -156,7 +156,9 @@ function sba_install() {
 register_deactivation_hook(__FILE__, 'sba_on_deactivation');
 function sba_on_deactivation() {
     $today = current_time('Y-m-d');
-    sba_flush_pv_buffer_batch($today);
+    if (function_exists('sba_flush_all_buffers')) {
+        sba_flush_all_buffers($today);
+    }
     delete_transient('sba_pv_flush_lock_' . $today);
     wp_clear_scheduled_hook('sba_daily_cleanup');
     wp_clear_scheduled_hook('sba_weekly_optimize');
@@ -522,80 +524,111 @@ function sba_atomic_increment($prefix) {
 
 function sba_get_counter($prefix, $date = null) {
     $date = $date ?: current_time('Y-m-d');
-    $opt_key = $prefix . $date;
-    $snapshot = 'sba_read_snapshot_' . $opt_key;
+    $snapshot_key = 'sba_read_snapshot_' . $prefix . $date;
     $is_admin = function_exists('current_user_can') && current_user_can('manage_options');
-    $force = isset($_SERVER['HTTP_CACHE_CONTROL']) && $_SERVER['HTTP_CACHE_CONTROL'] === 'no-cache' && $is_admin && $prefix === SBA_PREFIX_PV;
+    $force = $is_admin && (isset($_GET['page']) && strpos($_GET['page'], 'sba_') !== false);
 
     if ($force) {
-        $total_in_buf = (int)get_transient('sba_pv_dirty_buffer_' . $date);
-        if ($total_in_buf > 0) {
-            sba_flush_pv_buffer_batch($date, $total_in_buf);
-            set_transient('sba_pv_dirty_buffer_' . $date, 0, HOUR_IN_SECONDS);
-        }
-    }
-
-    if (!$force) {
-        $cached = get_transient($snapshot);
+        sba_flush_all_buffers($date);
+        delete_transient($snapshot_key);
+    } else {
+        $cached = get_transient($snapshot_key);
         if ($cached !== false) return (int)$cached;
     }
 
     global $wpdb;
-    $real = 0;
-    if ($prefix === SBA_PREFIX_UV) {
-        $real = (int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(DISTINCT ip) FROM {$wpdb->prefix}dis_stats WHERE visit_date = %s", $date));
-    } elseif ($prefix === SBA_PREFIX_PV) {
-        $db_val = (int)get_option($opt_key, 0);
+    $result = 0;
+
+    if ($prefix === SBA_PREFIX_PV) {
+        $db_val = (int)$wpdb->get_var($wpdb->prepare("SELECT option_value FROM $wpdb->options WHERE option_name = %s", $prefix . $date));
         $buffer_val = (int)get_transient('sba_pv_dirty_buffer_' . $date);
-        $real = $db_val + $buffer_val;
-    } elseif ($prefix === SBA_PREFIX_BLOCKED) {
-        $real = (int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$wpdb->prefix}sba_blocked_log WHERE DATE(block_time) = %s", $date));
+        $result = $db_val + $buffer_val;
+    } elseif ($prefix === SBA_PREFIX_UV) {
+        $result = (int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(DISTINCT ip) FROM {$wpdb->prefix}dis_stats WHERE visit_date = %s", $date));
+    } else {
+        $result = (int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$wpdb->prefix}sba_blocked_log WHERE DATE(block_time) = %s", $date));
     }
 
-    if ($prefix !== SBA_PREFIX_PV) update_option($opt_key, $real, false);
-    set_transient($snapshot, $real, SBA_READ_CACHE_TTL);
-    return $real;
+    set_transient($snapshot_key, $result, 600);
+    return $result;
 }
 
-function sba_inc_pv() {
-    static $last_lock_attempt = 0;
-    $date = current_time('Y-m-d');
-    $buffer_key = 'sba_pv_dirty_buffer_' . $date;
-    $last_flush_key = 'sba_pv_last_flush_' . $date;
-    $lock_key = 'sba_pv_flush_lock_' . $date;
+function sba_flush_all_buffers($date) {
+    global $wpdb;
+    $global_key = 'sba_pv_dirty_buffer_' . $date;
+    $global_inc = (int)get_transient($global_key);
+    if ($global_inc > 0) {
+        $wpdb->query($wpdb->prepare(
+            "INSERT INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, 'no')
+             ON DUPLICATE KEY UPDATE option_value = option_value + %d",
+            SBA_PREFIX_PV . $date, (string)$global_inc, $global_inc
+        ));
+        set_transient($global_key, 0, HOUR_IN_SECONDS);
+    }
 
-    $current = (int)get_transient($buffer_key);
-    set_transient($buffer_key, $current + 1, HOUR_IN_SECONDS);
-
-    $last_flush = (int)get_transient($last_flush_key);
-    $now = time();
-    if (($now - $last_flush) >= 600) {
-        if ($now - $last_lock_attempt >= 5) {
-            $last_lock_attempt = $now;
-            if (add_option($lock_key, $now, '', 'no')) {
-                $total = (int)get_transient($buffer_key);
-                if ($total > 0) sba_flush_pv_buffer_batch($date, $total);
-                set_transient($buffer_key, 0, HOUR_IN_SECONDS);
-                set_transient($last_flush_key, $now, HOUR_IN_SECONDS);
-                delete_option($lock_key);
-            } else {
-                $lock_time = (int)get_option($lock_key);
-                if ($now - $lock_time > 600) delete_option($lock_key);
+    $dirty_list_key = 'sba_dirty_tracks_' . $date;
+    $dirty_list = get_transient($dirty_list_key);
+    if (!empty($dirty_list)) {
+        $now = current_time('mysql');
+        $hour = (int)substr($now, 11, 2);
+        foreach ($dirty_list as $hash => $info) {
+            $t_key = 'sba_track_buf_' . $hash;
+            $inc = (int)get_transient($t_key);
+            if ($inc > 0) {
+                $wpdb->query($wpdb->prepare(
+                    "INSERT INTO {$wpdb->prefix}dis_stats (ip, url, visit_date, visit_hour, pv, last_visit)
+                     VALUES (%s, %s, %s, %d, %d, %s) ON DUPLICATE KEY UPDATE pv = pv + %d, last_visit = %s",
+                    $info['ip'], $info['url'], $date, $hour, $inc, $now, $inc, $now
+                ));
+                delete_transient($t_key);
             }
         }
+        delete_transient($dirty_list_key);
     }
+
+    set_transient('sba_pv_last_flush_' . $date, time(), HOUR_IN_SECONDS);
+    if (wp_using_ext_object_cache()) wp_cache_delete(SBA_PREFIX_PV . $date, 'options');
+    sba_clear_trend_cache();
 }
 
-function sba_flush_pv_buffer_batch($date, $increment = 0) {
-    if ($increment <= 0) return;
-    $key = SBA_PREFIX_PV . $date;
-    global $wpdb;
-    $wpdb->query($wpdb->prepare(
-        "INSERT INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, 'no') ON DUPLICATE KEY UPDATE option_value = option_value + %d",
-        $key, (string)$increment, $increment
-    ));
-    delete_transient('sba_read_snapshot_' . $key);
-    sba_clear_trend_cache();
+function sba_inc_pv($ip = null, $url = null) {
+    $date = current_time('Y-m-d');
+    $global_key = 'sba_pv_dirty_buffer_' . $date;
+    if (wp_using_ext_object_cache()) {
+        wp_cache_incr($global_key, 1, 'transient');
+    } else {
+        $count = (int)get_transient($global_key);
+        set_transient($global_key, $count + 1, HOUR_IN_SECONDS);
+    }
+
+    if ($ip && $url) {
+        $track_hash = md5($ip . $url . $date);
+        $track_key = 'sba_track_buf_' . $track_hash;
+        if (wp_using_ext_object_cache()) {
+            wp_cache_incr($track_key, 1, 'transient');
+        } else {
+            $t_count = (int)get_transient($track_key);
+            set_transient($track_key, $t_count + 1, HOUR_IN_SECONDS);
+        }
+
+        $dirty_list_key = 'sba_dirty_tracks_' . $date;
+        $dirty_list = get_transient($dirty_list_key) ?: [];
+        if (!isset($dirty_list[$track_hash])) {
+            $dirty_list[$track_hash] = ['ip' => $ip, 'url' => $url];
+            set_transient($dirty_list_key, $dirty_list, HOUR_IN_SECONDS);
+        }
+    }
+
+    $now = time();
+    $last_flush_key = 'sba_pv_last_flush_' . $date;
+    $last_flush_time = (int)get_transient($last_flush_key);
+    if (($now - $last_flush_time) >= 600) {
+        $lock_key = 'sba_pv_flush_lock_' . $date;
+        if (add_option($lock_key, $now, '', 'no')) {
+            sba_flush_all_buffers($date);
+            delete_option($lock_key);
+        }
+    }
 }
 
 function sba_inc_uv() { return sba_atomic_increment(SBA_PREFIX_UV); }
@@ -663,32 +696,22 @@ function sba_stats_engine() {
         }
     }
 
-    if (is_admin()) return;
+    if (is_admin() && !defined('DOING_AJAX')) {
+    } elseif (is_admin()) {
+        return;
+    }
     if (isset($_GET['action']) && $_GET['action'] === 'logout') return;
     if (defined('DOING_AJAX') && DOING_AJAX && strpos($_POST['action'] ?? '', 'sba_ios_') === 0) return;
 
-    // 统计逻辑
     if (!sba_is_internal_ip($ip)) {
         if (!defined('SBA_TRACKED')) define('SBA_TRACKED', true);
-        $now = current_time('mysql');
-        $date = substr($now, 0, 10);
-        $hour = (int)substr($now, 11, 2);
-        $lock = 'sba_write_lock_' . $ip . '_' . $date;
-        if (get_transient($lock) === false) {
-            $uv_cookie = 'sba_uv_' . str_replace('-', '', $date);
-            if (!isset($_COOKIE[$uv_cookie])) {
-                sba_inc_uv();
-                setcookie($uv_cookie, '1', strtotime('tomorrow'), COOKIEPATH, COOKIE_DOMAIN, is_ssl(), true);
-            }
-            global $wpdb;
-            $wpdb->query($wpdb->prepare(
-                "INSERT INTO {$wpdb->prefix}dis_stats (ip, url, visit_date, visit_hour, pv, last_visit)
-                 VALUES (%s, %s, %s, %d, 1, %s) ON DUPLICATE KEY UPDATE pv = pv + 1, last_visit = %s",
-                $ip, $raw_uri, $date, $hour, $now, $now
-            ));
-            set_transient($lock, '1', SBA_WRITE_LOCK_TTL);
+        $date = current_time('Y-m-d');
+        $uv_cookie = 'sba_uv_' . str_replace('-', '', $date);
+        if (!isset($_COOKIE[$uv_cookie])) {
+            sba_inc_uv();
+            setcookie($uv_cookie, '1', strtotime('tomorrow'), COOKIEPATH, COOKIE_DOMAIN, is_ssl(), true);
         }
-        sba_inc_pv();
+        sba_inc_pv($ip, $raw_uri);
     }
 
     if (sba_is_ip_whitelisted($ip)) return;
@@ -1080,7 +1103,11 @@ function sba_ajax_load_tracks() {
     $off = ($p - 1) * $per;
     $searcher = SBA_IP_Searcher::get_instance();
     $latest = $wpdb->get_var("SELECT MAX(visit_date) FROM {$wpdb->prefix}dis_stats") ?: current_time('Y-m-d');
-    $total = sba_get_pv($latest);
+    global $wpdb;
+    $total = (int)$wpdb->get_var($wpdb->prepare(
+        "SELECT COUNT(*) FROM {$wpdb->prefix}dis_stats WHERE visit_date = %s",
+        $latest
+    ));
     if ($total == 0) $total = $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$wpdb->prefix}dis_stats WHERE visit_date = %s", $latest));
     $rows = $wpdb->get_results($wpdb->prepare("SELECT ip, url, pv, last_visit FROM {$wpdb->prefix}dis_stats WHERE visit_date = %s ORDER BY last_visit DESC LIMIT %d, %d", $latest, $off, $per));
     $html = '';
